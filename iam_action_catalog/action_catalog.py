@@ -439,9 +439,12 @@ def _make_last_access_trackable() -> dict[str, list[str]]:
     return service_to_last_accessed_information_actions
 
 
-def _make_service_to_actions(
+Catalog = dict[str, list[ActionTypeDef]]
+
+
+def _make_catalog(
     last_accessed_trackable: dict[str, list[str]],
-) -> dict[str, list[ActionTypeDef]]:
+) -> Catalog:
     def _make_url_from_service(service: str) -> str:
         _url_prefix = (
             "https://docs.aws.amazon.com/service-authorization/latest/reference"
@@ -500,14 +503,10 @@ class GlobalServiceToActions:
     _instance: Self | None = None
     _lock: threading.Lock = threading.Lock()
 
-    def __init__(
-        self,
-        _service_to_actions: dict[str, list[ActionTypeDef]],
-        _internal: bool = False,
-    ) -> None:
+    def __init__(self, _catalog: Catalog, _internal: bool = False) -> None:
         if not _internal:
             raise RuntimeError("cannot instantiate")
-        self._service_to_actions = _service_to_actions
+        self._catalog = _catalog
 
     @classmethod
     def instance(cls) -> Self:
@@ -515,10 +514,10 @@ class GlobalServiceToActions:
             if cls._instance is None:
                 last_accessed_trackable = _make_last_access_trackable()
                 cls._instance = cls(
-                    _make_service_to_actions(last_accessed_trackable),
+                    _make_catalog(last_accessed_trackable),
                     _internal=True,
                 )
             return cls._instance
 
     def value(self) -> dict[str, list[ActionTypeDef]]:
-        return self._service_to_actions
+        return self._catalog
