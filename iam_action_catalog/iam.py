@@ -28,75 +28,11 @@ def unwrap(value: T | None) -> T:
     return value
 
 
-def _iterate_attached_role_policies(
-    make_client: Callable[[], IAMClient], role_name: str, path_prefix: str | None = None
-) -> Iterable[str]:
-    marker = None
-
-    client = make_client()
-    while marker is None or marker:
-        kwargs = ListAttachedRolePoliciesRequestTypeDef(RoleName=role_name)
-        if marker:
-            kwargs["Marker"] = marker
-        if path_prefix:
-            kwargs["PathPrefix"] = path_prefix
-
-        res = client.list_attached_role_policies(**kwargs)
-        attached_policies = res["AttachedPolicies"]
-
-        if attached_policies:
-            yield from [unwrap(a.get("PolicyArn")) for a in attached_policies]
-
-        marker = res.get("Marker")
-        if not marker:
-            break
-
-
 @dataclass(frozen=True)
 class Action:
     service_namespace: str
     action_name: str
     last_accessed_trackable: bool
-
-
-def _get_actions_for_policy(
-    make_client: Callable[[], IAMClient],
-    policy_arn: str,
-    catalog_map: dict[str, dict[str, ActionTypeDef]],
-) -> dict[str, list[Action]]:
-    client = make_client()
-    res = client.get_policy(PolicyArn=policy_arn)
-    version = unwrap(res["Policy"].get("DefaultVersionId"))
-    res = client.get_policy_version(PolicyArn=policy_arn, VersionId=version)
-    policy_document = res["PolicyVersion"].get("Document")
-    if not policy_document:
-        return {}
-
-    if isinstance(policy_document, str):
-        statement = json.loads(policy_document)["Statement"]
-    else:
-        statement = policy_document["Statement"]
-
-    ret: dict[str, list[Action]] = {}
-    for s in statement:
-        actions = s["Action"]
-        if not isinstance(actions, list):
-            actions = [actions]
-        for action in actions:
-            ns, action_name = action.split(":", 1)
-            if ns not in ret:
-                ret[ns] = []
-            action_from_catalog = catalog_map[ns][action_name.lower()]
-            ret[ns].append(
-                Action(
-                    service_namespace=ns,
-                    action_name=action_name,
-                    last_accessed_trackable=action_from_catalog[
-                        "last_accessed_trackable"
-                    ],
-                )
-            )
-    return ret
 
 
 class GetLastAccessedDetailError(Exception):
@@ -142,6 +78,46 @@ def _make_message_for_considered_not_unused_reason(
     return (
         "This action has no recent action-level access record, but "
         f"the service was accessed within the past {days} days"
+    )
+
+
+class LastAccessedDetailTypeDef(TypedDict):
+    action_name: str
+    service_name: str
+    service_namespace: str
+    granularity: Literal["service", "action"]
+    service_level_last_authenticated: str | None
+    service_level_last_authenticated_entity: str | None
+    service_level_last_authenticated_region: str | None
+    action_level_last_accessed: str | None
+    action_level_last_authenticated_entity: str | None
+    action_level_last_authenticated_region: str | None
+    considered_unused: bool
+    considered_unused_reason: str | None
+    considered_not_unused_reason: str | None
+
+
+def _to_last_accessed_detail_type_def(
+    detail: LastAccessedDetail,
+) -> LastAccessedDetailTypeDef:
+    return LastAccessedDetailTypeDef(
+        action_name=detail.action_name,
+        service_name=detail.service_name,
+        service_namespace=detail.service_namespace,
+        granularity=detail.granularity,
+        service_level_last_authenticated=detail.service_level_last_authenticated.isoformat()
+        if detail.service_level_last_authenticated
+        else None,
+        service_level_last_authenticated_entity=detail.service_level_last_authenticated_entity,
+        service_level_last_authenticated_region=detail.service_level_last_authenticated_region,
+        action_level_last_accessed=detail.action_level_last_accessed.isoformat()
+        if detail.action_level_last_accessed
+        else None,
+        action_level_last_authenticated_entity=detail.action_level_last_authenticated_entity,
+        action_level_last_authenticated_region=detail.action_level_last_authenticated_region,
+        considered_unused=detail.considered_unused,
+        considered_unused_reason=detail.considered_unused_reason,
+        considered_not_unused_reason=detail.considered_not_unused_reason,
     )
 
 
@@ -286,44 +262,68 @@ def _get_last_accessed_details(
     return details
 
 
-class LastAccessedDetailTypeDef(TypedDict):
-    action_name: str
-    service_name: str
-    service_namespace: str
-    granularity: Literal["service", "action"]
-    service_level_last_authenticated: str | None
-    service_level_last_authenticated_entity: str | None
-    service_level_last_authenticated_region: str | None
-    action_level_last_accessed: str | None
-    action_level_last_authenticated_entity: str | None
-    action_level_last_authenticated_region: str | None
-    considered_unused: bool
-    considered_unused_reason: str | None
-    considered_not_unused_reason: str | None
+def _get_actions_for_policy(
+    make_client: Callable[[], IAMClient],
+    policy_arn: str,
+    catalog_map: dict[str, dict[str, ActionTypeDef]],
+) -> dict[str, list[Action]]:
+    client = make_client()
+    res = client.get_policy(PolicyArn=policy_arn)
+    version = unwrap(res["Policy"].get("DefaultVersionId"))
+    res = client.get_policy_version(PolicyArn=policy_arn, VersionId=version)
+    policy_document = res["PolicyVersion"].get("Document")
+    if not policy_document:
+        return {}
+
+    if isinstance(policy_document, str):
+        statement = json.loads(policy_document)["Statement"]
+    else:
+        statement = policy_document["Statement"]
+
+    ret: dict[str, list[Action]] = {}
+    for s in statement:
+        actions = s["Action"]
+        if not isinstance(actions, list):
+            actions = [actions]
+        for action in actions:
+            ns, action_name = action.split(":", 1)
+            if ns not in ret:
+                ret[ns] = []
+            action_from_catalog = catalog_map[ns][action_name.lower()]
+            ret[ns].append(
+                Action(
+                    service_namespace=ns,
+                    action_name=action_name,
+                    last_accessed_trackable=action_from_catalog[
+                        "last_accessed_trackable"
+                    ],
+                )
+            )
+    return ret
 
 
-def _to_last_accessed_detail_type_def(
-    detail: LastAccessedDetail,
-) -> LastAccessedDetailTypeDef:
-    return LastAccessedDetailTypeDef(
-        action_name=detail.action_name,
-        service_name=detail.service_name,
-        service_namespace=detail.service_namespace,
-        granularity=detail.granularity,
-        service_level_last_authenticated=detail.service_level_last_authenticated.isoformat()
-        if detail.service_level_last_authenticated
-        else None,
-        service_level_last_authenticated_entity=detail.service_level_last_authenticated_entity,
-        service_level_last_authenticated_region=detail.service_level_last_authenticated_region,
-        action_level_last_accessed=detail.action_level_last_accessed.isoformat()
-        if detail.action_level_last_accessed
-        else None,
-        action_level_last_authenticated_entity=detail.action_level_last_authenticated_entity,
-        action_level_last_authenticated_region=detail.action_level_last_authenticated_region,
-        considered_unused=detail.considered_unused,
-        considered_unused_reason=detail.considered_unused_reason,
-        considered_not_unused_reason=detail.considered_not_unused_reason,
-    )
+def _iterate_attached_role_policies(
+    make_client: Callable[[], IAMClient], role_name: str, path_prefix: str | None = None
+) -> Iterable[str]:
+    marker = None
+
+    client = make_client()
+    while marker is None or marker:
+        kwargs = ListAttachedRolePoliciesRequestTypeDef(RoleName=role_name)
+        if marker:
+            kwargs["Marker"] = marker
+        if path_prefix:
+            kwargs["PathPrefix"] = path_prefix
+
+        res = client.list_attached_role_policies(**kwargs)
+        attached_policies = res["AttachedPolicies"]
+
+        if attached_policies:
+            yield from [unwrap(a.get("PolicyArn")) for a in attached_policies]
+
+        marker = res.get("Marker")
+        if not marker:
+            break
 
 
 def list_last_accessed_details(
