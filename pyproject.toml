@@ -13,7 +13,9 @@ authors = [
   { name = "Nagumo Takanobu", email = "nagumo5683@gmail.com" }
 ]
 dependencies = [
-  "beautifulsoup4==4.13.4"
+  "beautifulsoup4==4.13.4",
+  "boto3==1.38.14",
+  "mypy-boto3-iam==1.38.14"
 ]
 
 [project.scripts]
