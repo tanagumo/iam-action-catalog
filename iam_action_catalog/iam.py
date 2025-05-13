@@ -12,6 +12,7 @@ from mypy_boto3_iam import IAMClient
 from mypy_boto3_iam.type_defs import (
     GetServiceLastAccessedDetailsRequestTypeDef,
     ListAttachedRolePoliciesRequestTypeDef,
+    PolicyDocumentStatementTypeDef,
     ServiceLastAccessedTypeDef,
     TrackedActionLastAccessedTypeDef,
 )
@@ -275,6 +276,7 @@ def _get_actions_for_policy(
     if not policy_document:
         return {}
 
+    statement: list[PolicyDocumentStatementTypeDef]
     if isinstance(policy_document, str):
         statement = json.loads(policy_document)["Statement"]
     else:
@@ -286,6 +288,11 @@ def _get_actions_for_policy(
         if not isinstance(actions, list):
             actions = [actions]
         for action in actions:
+            if "*" in action:
+                logger.warning(
+                    f"[policy({policy_arn})]: it contains a statement with at least one action that includes *. This is currently ignored."
+                )
+                continue
             ns, action_name = action.split(":", 1)
             if ns not in ret:
                 ret[ns] = []
