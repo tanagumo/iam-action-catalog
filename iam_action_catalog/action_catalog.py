@@ -193,7 +193,9 @@ def _to_resource_type_type_def(r: ResourceType) -> ResourceTypeTypeDef:
 
 
 class ActionTypeDef(TypedDict):
-    """外部APIへのレスポンスを想定したIAM Actionの構造"""
+    """Represents the structure of an IAM action as expected
+    in external API responses.
+    """
 
     name: str
     ref: str | None
@@ -234,9 +236,9 @@ def _flatten_actions(actions: list[Action]) -> list[ActionTypeDef]:
                 "resource_types": [
                     _to_resource_type_type_def(r) for r in s.resource_types
                 ],
-                # NOTE: 一つのActionに複数のSENARIOが発生するのは2025/04/29時点で
-                # EC2サービスのRunInstancesアクションのみ
-                # この場合condition keysは空となるようなので現状固定で空リストにしている
+                # NOTE: As of 2025/04/29, the only known case where a single Action has multiple scenarios
+                # is the RunInstances action in the EC2 service.
+                # In these cases, condition keys appear to be absent, so we currently fix it as an empty list.
                 "condition_keys": [],
                 "dependent_actions": action.dependent_actions,
                 "last_accessed_trackable": action.last_accessed_trackable,
@@ -248,11 +250,11 @@ def _flatten_actions(actions: list[Action]) -> list[ActionTypeDef]:
 
 class RowKind(Enum):
     title = "title"
-    """タイトル行"""
+    """Header row that starts a new action definition."""
     additional = "additional"
-    """複数リソースやリソースごとにCondition Keysが指定される際に発生する追加行"""
+    """Additional row for extra resource types or condition keys related to the same action."""
     scenario = "scenario"
-    """現状EC2のRunInstancesでのみ発生するシナリオ用の行"""
+    """Scenario row, currently only observed in the EC2 RunInstances action."""
 
 
 def _fetch_action_table(
@@ -284,10 +286,10 @@ def _fetch_action_table(
     for tr in tr_list:
         td_list = tr.select("td")
 
-        # 現状EC2のRunInstancesだけ複数のSCENARIOを持つ
-        # tdの要素数が5の場合にSCENARIOと判断する
-        # またSCENARIOについては以下を前提としている
-        # * condition_keyはResource, Actionの両方に対して指定されない
+        # Currently, only EC2's RunInstances action has multiple SCENARIO rows.
+        # If the number of <td> elements is 5, we treat it as a SCENARIO row.
+        # For such SCENARIOs, we assume the following:
+        # * No condition keys are specified for either the Resource or the Action itself.
         if len(td_list) == 5:
             row_kind = RowKind.scenario
         elif len(td_list) == 3:
