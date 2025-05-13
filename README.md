@@ -17,6 +17,7 @@ The tool automatically caches results to avoid redundant scraping and will trans
   - The cache is broken or malformed
   - The cache is older than 1 day (by default)
 - 📤 Outputs structured JSON (optionally pretty-printed)
+- 🧪 **New!** `list-last-accessed-details` subcommand to list actions unused for a specified period
 
 ---
 
@@ -50,13 +51,43 @@ iam-action-catalog --cache-path ./out.json
 |----------------------|------------------------------------------------|
 | `--cache-path`       | Path to the cache file (required)              |
 | `--rebuild-cache`    | Forces a fresh scrape, ignoring any cache      |
-| `--pretty`           | Pretty-print the resulting JSON to stdout      |
 
-### Example
+### Subcommands
+
+#### `catalog`
+
+Outputs the IAM action catalog as JSON.
 
 ```bash
-iam-action-catalog --cache-path ./iam_actions.json --pretty
+iam-action-catalog --cache-path ./out.json catalog --pretty
 ```
+
+**Options:**
+
+| Option                     | Description                                                                 |
+|----------------------------|-----------------------------------------------------------------------------|
+| `--pretty`                 | Pretty-print the resulting JSON to stdout                                   |
+
+#### `list-last-accessed-details`
+
+Lists IAM actions that have not been accessed within a specified number of days.
+
+```bash
+iam-action-catalog --cache-path ./out.json list-last-accessed-details --role-arn <ROLE_ARN> --days-from-last-accessed 90 --pretty
+```
+
+**Options:**
+
+| Option                     | Description                                                                 |
+|----------------------------|-----------------------------------------------------------------------------|
+| `--role-arn`               | ARN of the IAM role to analyze (required)                                   |
+| `--aws-access-key-id`      | AWS access key ID (optional)                                                |
+| `--aws-secret-access-key`  | AWS secret access key (optional)                                            |
+| `--aws-profile`            | AWS CLI profile name (optional)                                             |
+| `--aws-region`             | AWS region (optional)                                                       |
+| `--only-considered-unused` | Only include actions considered unused by AWS Access Analyzer (optional)    |
+| `--days-from-last-accessed`| Number of days since last access to consider an action unused (default: 90) |
+| `--pretty`                 | Pretty-print the resulting JSON to stdout                                   |
 
 ---
 
@@ -89,40 +120,13 @@ The output is a JSON object structured as follows:
           {
             "value": "s3:AccessGrantsInstanceArn",
             "ref": "https://docs.aws.amazon.com/service-authorization/latest/reference/list#amazons3-s3_AccessGrantsInstanceArn"
-          },
-          ...
+          }
         ],
         "dependent_actions": [],
         "last_accessed_trackable": false,
         "permission_only": false
-      },
-      {
-        "name": "DeleteBucket",
-        "ref": "https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucket.html",
-        "description": "Grants permission to delete the bucket named in the URI",
-        "access_level": "Write",
-        "resource_types": [
-          {
-            "name": "bucket",
-            "required": true,
-            "ref": "https://docs.aws.amazon.com/service-authorization/latest/reference/list#amazons3-bucket",
-            "condition_keys": []
-          }
-        ],
-        "condition_keys": [
-          {
-            "value": "s3:authType",
-            "ref": "https://docs.aws.amazon.com/service-authorization/latest/reference/list#amazons3-s3_authType"
-          },
-          ...
-        ],
-        "dependent_actions": [],
-        "last_accessed_trackable": true,
-        "permission_only": false
-      },
-      ...
-    ],
-    ...
+      }
+    ]
   }
 }
 ```
@@ -143,6 +147,41 @@ By extracting this metadata directly from AWS documentation, this tool enables *
 
 ---
 
+## Required IAM Permissions
+
+To run the `list-last-accessed-details` subcommand, the following IAM permissions are required for the calling identity:
+
+- `iam:GenerateServiceLastAccessedDetails`
+- `iam:GetServiceLastAccessedDetails`
+- `iam:ListAttachedRolePolicies`
+- `iam:GetPolicy`
+- `iam:GetPolicyVersion`
+
+These permissions allow the tool to analyze attached policies and query AWS Access Analyzer data.
+
+### Example IAM policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:GenerateServiceLastAccessedDetails",
+        "iam:GetServiceLastAccessedDetails",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+---
+
 ## Development
 
 ### Run from source
@@ -154,8 +193,10 @@ python -m iam_action_catalog --cache-path ./out.json
 ### Formatting & Linting
 
 ```bash
-pip install -r requirements-dev.txt
+pip install ruff build
 ```
+
+> These tools are now managed via [pyproject.toml](./pyproject.toml).
 
 ---
 
@@ -187,7 +228,3 @@ Planned features include:
 
 - `--service <service>`: Output actions for a specific AWS service only
 - `--only-trackable`: Output only actions where `last_accessed_trackable == true`
-- `--access-log <file> --min-unused-days <int>`:
-  Cross-reference with Access Analyzer results and output actions that:
-  - Are `last_accessed_trackable == true`, and
-  - Have not been used for at least the specified number of days
