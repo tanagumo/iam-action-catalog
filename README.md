@@ -214,6 +214,13 @@ If AWS changes the page layout or internal structure:
 
 If you notice incorrect or missing data, check the [IAM actions documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_actions-resources-contextkeys.html) for changes.
 
+### Wildcard action patterns are currently ignored
+
+Actions containing wildcards such as `"s3:*"` or `"*"` in IAM policies are currently ignored.  
+The tool logs a warning when such patterns are encountered and skips them from analysis.
+
+> This is to prevent runtime errors and undefined behavior. Future versions may support expanding service-level wildcard actions like `"s3:*"` into individual actions.
+
 ---
 
 ## License
