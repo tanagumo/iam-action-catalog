@@ -1,6 +1,8 @@
+import fnmatch
 import json
 import logging
 import os
+import re
 import time
 from concurrent import futures
 from dataclasses import dataclass
@@ -22,6 +24,9 @@ from iam_action_catalog.action_catalog import ActionTypeDef, Catalog
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+_ACTION_PATTERN = re.compile(r"^(?P<global>\*)$|^(?P<service>[^:]+):(?P<action>.+)$")
 
 
 def unwrap(value: T | None) -> T:
@@ -125,7 +130,7 @@ def _to_last_accessed_detail_type_def(
 def _get_last_accessed_details(
     make_client: Callable[[], IAMClient],
     policy_arn: str,
-    action_map: dict[str, list[Action]],
+    action_map: dict[str, set[Action]],
     days_since_last_accessed: int,
     at: datetime,
 ) -> list[LastAccessedDetail]:
@@ -260,14 +265,15 @@ def _get_last_accessed_details(
                 )
             details.append(detail)
 
-    return details
+    return sorted(details, key=lambda d: (d.service_namespace, d.action_name))
 
 
 def _get_actions_for_policy(
     make_client: Callable[[], IAMClient],
     policy_arn: str,
     catalog_map: dict[str, dict[str, ActionTypeDef]],
-) -> dict[str, list[Action]]:
+    expand_action_wildcard: bool,
+) -> dict[str, set[Action]]:
     client = make_client()
     res = client.get_policy(PolicyArn=policy_arn)
     version = unwrap(res["Policy"].get("DefaultVersionId"))
@@ -282,30 +288,62 @@ def _get_actions_for_policy(
     else:
         statement = policy_document["Statement"]
 
-    ret: dict[str, list[Action]] = {}
+    ret: dict[str, set[Action]] = {}
     for s in statement:
         actions = s["Action"]
         if not isinstance(actions, list):
             actions = [actions]
+
         for action in actions:
-            if "*" in action:
+            match = _ACTION_PATTERN.search(action)
+            reason = ""
+            matched_name = ""
+            service_namespace = ""
+
+            if not match:
+                reason = "invalid format (expected service:action)."
+            else:
+                # In IAM policies, action names like 'ec2:DescribeInstances' are case-insensitive.
+                # To ensure consistent matching, the service namespace and action name are normalized to lowercase.
+                if match.group("global") == "*":
+                    reason = "global wildcard is not supported."
+                else:
+                    service_namespace = match.group("service").lower()
+                    matched_name = match.group("action").lower()
+
+                    if "*" in service_namespace:
+                        reason = "wildcard in service name is not supported."
+                    elif service_namespace not in catalog_map:
+                        reason = "unknown service namespace"
+                    elif "*" in action and not expand_action_wildcard:
+                        reason = "wildcard in action name is ignored unless --expand-action-wildcard is specified."
+
+            if reason:
                 logger.warning(
-                    f"[policy({policy_arn})]: it contains a statement with at least one action that includes *. This is currently ignored."
+                    f'Skipping action "{action}" in policy "{policy_arn}": {reason}.'
                 )
                 continue
-            ns, action_name = action.split(":", 1)
-            if ns not in ret:
-                ret[ns] = []
-            action_from_catalog = catalog_map[ns][action_name.lower()]
-            ret[ns].append(
-                Action(
-                    service_namespace=ns,
-                    action_name=action_name,
-                    last_accessed_trackable=action_from_catalog[
-                        "last_accessed_trackable"
-                    ],
-                )
+
+            matched_names = fnmatch.filter(
+                catalog_map[service_namespace].keys(), matched_name
             )
+
+            if service_namespace not in ret:
+                ret[service_namespace] = set()
+
+            for matched_name in matched_names:
+                # Action names in IAM policies are case-insensitive, so we match using lowercase.
+                # For output, we use the name from the catalog as it reflects the official casing from AWS documentation.
+                action_from_catalog = catalog_map[service_namespace][matched_name]
+                ret[service_namespace].add(
+                    Action(
+                        service_namespace=service_namespace,
+                        action_name=action_from_catalog["name"],
+                        last_accessed_trackable=action_from_catalog[
+                            "last_accessed_trackable"
+                        ],
+                    )
+                )
     return ret
 
 
@@ -337,6 +375,7 @@ def list_last_accessed_details(
     role_arn: str,
     catalog: Catalog,
     days_from_last_accessed: int,
+    expand_action_wildcard: bool,
     *,
     profile_name: str | None = None,
     access_key_id: str | None = None,
@@ -371,13 +410,17 @@ def list_last_accessed_details(
     with futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as exc:
         fs = {
             policy_arn: exc.submit(
-                _get_actions_for_policy, make_client, policy_arn, catalog_map
+                _get_actions_for_policy,
+                make_client,
+                policy_arn,
+                catalog_map,
+                expand_action_wildcard,
             )
             for policy_arn in policy_arns
         }
 
     futures.wait(fs.values())
-    policy_arn_to_action_map: dict[str, dict[str, list[Action]]] = {}
+    policy_arn_to_action_map: dict[str, dict[str, set[Action]]] = {}
     for policy_arn, f in fs.items():
         try:
             policy_arn_to_action_map[policy_arn] = f.result()
