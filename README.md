@@ -78,16 +78,17 @@ iam-action-catalog --cache-path ./out.json list-last-accessed-details --role-arn
 
 **Options:**
 
-| Option                     | Description                                                                 |
-|----------------------------|-----------------------------------------------------------------------------|
-| `--role-arn`               | ARN of the IAM role to analyze (required)                                   |
-| `--aws-access-key-id`      | AWS access key ID (optional)                                                |
-| `--aws-secret-access-key`  | AWS secret access key (optional)                                            |
-| `--aws-profile`            | AWS CLI profile name (optional)                                             |
-| `--aws-region`             | AWS region (optional)                                                       |
-| `--only-considered-unused` | Only include actions considered unused by AWS Access Analyzer (optional)    |
-| `--days-from-last-accessed`| Number of days since last access to consider an action unused (default: 90) |
-| `--pretty`                 | Pretty-print the resulting JSON to stdout                                   |
+| Option                     | Description                                                                                                                                               |
+|----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--role-arn`               | ARN of the IAM role to analyze (required)                                                                                                                 |
+| `--aws-access-key-id`      | AWS access key ID (optional)                                                                                                                              |
+| `--aws-secret-access-key`  | AWS secret access key (optional)                                                                                                                          |
+| `--aws-profile`            | AWS CLI profile name (optional)                                                                                                                           |
+| `--aws-region`             | AWS region (optional)                                                                                                                                     |
+| `--only-considered-unused` | Only include actions considered unused by AWS Access Analyzer (optional)                                                                                  |
+| `--days-from-last-accessed`| Number of days since last access to consider an action unused (default: 90)                                                                               |
+| `--pretty`                 | Pretty-print the resulting JSON to stdout                                                                                                                 |
+| `--expand-action-wildcard` | Expand action name wildcards (e.g., `Describe*`) when matching against catalog. Does not apply to `"*"` or service-level wildcards like `"*:CreateTags"`. |
 
 ---
 
@@ -214,12 +215,16 @@ If AWS changes the page layout or internal structure:
 
 If you notice incorrect or missing data, check the [IAM actions documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_actions-resources-contextkeys.html) for changes.
 
-### Wildcard action patterns are currently ignored
+### Wildcard action patterns
 
-Actions containing wildcards such as `"s3:*"` or `"*"` in IAM policies are currently ignored.  
-The tool logs a warning when such patterns are encountered and skips them from analysis.
+By default, action patterns in IAM policies containing `"*"` are skipped.  
+The tool logs a warning and ignores actions such as `"*"` or `"*:CreateTags"` which cannot be resolved to a specific service.
 
-> This is to prevent runtime errors and undefined behavior. Future versions may support expanding service-level wildcard actions like `"s3:*"` into individual actions.
+> This is to prevent runtime errors and ambiguous matching.
+
+As of version 0.3.0, action name wildcards can be expanded when using the `--expand-action-wildcard` flag.  
+For example, `"s3:Describe*"` will match all corresponding actions in the `s3` catalog.  
+Wildcard patterns in the service name or global wildcard (`"*"`) remain unsupported.
 
 ---
 

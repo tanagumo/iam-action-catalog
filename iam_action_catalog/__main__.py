@@ -144,6 +144,7 @@ class ListLastAccessedDetails:
     aws_region: str | None
     days_from_last_accessed: int
     only_considered_unused: bool
+    expand_action_wildcard: bool
 
 
 @dataclass
@@ -227,6 +228,11 @@ def parse_args() -> ParseResult:
         default=90,
         help="Threshold in days to consider an action unused if it has not been accessed. Default is 90.",
     )
+    list_last_accessed_details.add_argument(
+        "--expand-action-wildcard",
+        action="store_true",
+        help="Expand wildcard in actions",
+    )
 
     ret = parser.parse_args()
 
@@ -243,6 +249,7 @@ def parse_args() -> ParseResult:
             days_from_last_accessed=ret.days_from_last_accessed,
             pretty_print=ret.pretty,
             only_considered_unused=ret.only_considered_unused,
+            expand_action_wildcard=ret.expand_action_wildcard,
         )
 
     return ParseResult(
@@ -308,6 +315,7 @@ def main():
             access_key_id=da.aws_access_key_id,
             secret_access_key=da.aws_secret_access_key,
             days_from_last_accessed=da.days_from_last_accessed,
+            expand_action_wildcard=da.expand_action_wildcard,
         )
 
         ret = (
