@@ -397,7 +397,7 @@ def list_last_accessed_details(
         return session.client("iam")
 
     catalog_map = {
-        service_namespace: {a["name"].lower(): a for a in actions}
+        service_namespace.lower(): {a["name"].lower(): a for a in actions}
         for service_namespace, actions in catalog.items()
     }
 
