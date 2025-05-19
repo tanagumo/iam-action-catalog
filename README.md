@@ -1,29 +1,53 @@
 # iam-action-catalog
 
-`iam-action-catalog` is a CLI tool that scrapes the official AWS IAM documentation to extract a list of IAM actions per service, including the `last_accessed_trackable` flag — which indicates whether each action is tracked by AWS Access Analyzer for unused permission analysis.
+A CLI tool to identify IAM actions that can be safely removed — **without relying on CloudTrail or AWS Access Analyzer (external sharing)**.
 
-The tool automatically caches results to avoid redundant scraping and will transparently re-fetch the latest data if the cache is missing, expired, or malformed.
-
-> ✅ Ideal for detecting unused IAM permissions **even without CloudTrail**, by leveraging `last_accessed_trackable`.
+This tool uses IAM's built-in *last accessed information APIs* and a local "action catalog" to determine which actions have not been used in a given time window and can be confidently considered unused.
 
 ---
 
-## Features
+## 1. Overview
 
-- 🧩 **Scrapes IAM actions per AWS service**
-- 🔍 **Extracts `last_accessed_trackable`**, used in Access Analyzer to determine unused permissions
-- 📦 **Caches results**, and auto-rebuilds if:
-  - The cache file does not exist
-  - The cache is broken or malformed
-  - The cache is older than 1 day (by default)
-- 📤 Outputs structured JSON (optionally pretty-printed)
-- 🧪 **New!** `list-last-accessed-details` subcommand to list actions unused for a specified period
+This tool helps audit IAM roles, users, or groups by extracting actions that have not been used recently, **based on Access Analyzer-compatible tracking data**, but **without requiring CloudTrail logs or an Analyzer resource**.
+
+It is designed to:
+- Work without any pre-enabled AWS services
+- Operate locally and safely
+- Focus only on actions that can be **proven unused**
 
 ---
 
-## Installation
+## 2. How It Works
 
-> ⚠️ **Requires Python 3.10 or higher**
+The tool leverages two key data sources:
+1. **IAM's last accessed data** (retrieved via `generate-service-last-accessed-details` and `get-service-last-accessed-details`)
+2. **A local catalog** of IAM actions, built from public AWS documentation
+
+Each action in the catalog includes a `last_accessed_trackable` flag, which indicates whether the action is eligible for tracking by AWS's Access Analyzer API.  
+Only trackable actions are considered when evaluating usage.
+
+---
+
+## 3. Important Notes
+
+This is **not** a tool for detecting *all* unused actions.  
+Instead, it is designed to detect only those actions that:
+- Are trackable by Access Analyzer
+- Have not been accessed within a specified time window
+
+In other words, it answers:  
+> *"Which actions can I safely delete, with objective evidence that they haven't been used recently?"*
+
+It does **not** require:
+- CloudTrail
+- A configured Access Analyzer resource
+- Any paid AWS features
+
+---
+
+## 4. Installation
+
+> ⚠️ **Requires Python 3.11 or higher**
 
 ```bash
 pip install .
@@ -39,204 +63,111 @@ pip install ./dist/iam_action_catalog-*.whl
 
 ---
 
-## Usage
+## 5. Commands and Usage
+
+### Build the catalog
 
 ```bash
-iam-action-catalog --cache-path ./out.json
+iam-action-catalog --catalog-path ./catalog.json catalog build
 ```
 
-### Options
+This will parse AWS IAM documentation and generate a catalog of known IAM actions.
 
-| Option               | Description                                    |
-|----------------------|------------------------------------------------|
-| `--cache-path`       | Path to the cache file (required)              |
-| `--rebuild-cache`    | Forces a fresh scrape, ignoring any cache      |
-
-### Subcommands
-
-#### `catalog`
-
-Outputs the IAM action catalog as JSON.
+### Show catalog contents
 
 ```bash
-iam-action-catalog --cache-path ./out.json catalog --pretty
+iam-action-catalog --catalog-path ./catalog.json catalog show --pretty
 ```
-
-**Options:**
-
-| Option                     | Description                                                                 |
-|----------------------------|-----------------------------------------------------------------------------|
-| `--pretty`                 | Pretty-print the resulting JSON to stdout                                   |
-
-#### `list-last-accessed-details`
-
-Lists IAM actions that have not been accessed within a specified number of days.
-
-```bash
-iam-action-catalog --cache-path ./out.json list-last-accessed-details --role-arn <ROLE_ARN> --days-from-last-accessed 90 --pretty
-```
-
-**Options:**
-
-| Option                     | Description                                                                                                                                               |
-|----------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--role-arn`               | ARN of the IAM role to analyze (required)                                                                                                                 |
-| `--aws-access-key-id`      | AWS access key ID (optional)                                                                                                                              |
-| `--aws-secret-access-key`  | AWS secret access key (optional)                                                                                                                          |
-| `--aws-profile`            | AWS CLI profile name (optional)                                                                                                                           |
-| `--aws-region`             | AWS region (optional)                                                                                                                                     |
-| `--only-considered-unused` | Only include actions considered unused by AWS Access Analyzer (optional)                                                                                  |
-| `--days-from-last-accessed`| Number of days since last access to consider an action unused (default: 90)                                                                               |
-| `--pretty`                 | Pretty-print the resulting JSON to stdout                                                                                                                 |
-| `--expand-action-wildcard` | Expand action name wildcards (e.g., `Describe*`) when matching against catalog. Does not apply to `"*"` or service-level wildcards like `"*:CreateTags"`. |
 
 ---
 
-## Output Format
+### Analyze last accessed actions for a role
 
-The output is a JSON object structured as follows:
+```bash
+iam-action-catalog --catalog-path ./catalog.json \
+  list-last-accessed-details \
+  --arn arn:aws:iam::123456789012:role/MyRole \
+  --only-considered-unused \
+  --days-from-last-accessed 180 \
+  --pretty
+```
+
+Options include:
+
+* --days-from-last-accessed: Number of days of inactivity before flagging an action (default: 90)
+* --output-structure list|dict: Controls output format (default: list)
+* --aws-profile or --aws-access-key-id / --aws-secret-access-key: Credential injection
+
+---
+
+## 6. Example Output
 
 ```json
-{
-  "meta": {
-    "schema_version": "1.0.0",
-    "generated_timestamp": 1715490060
-  },
-  "actions": {
-    "s3": [
+[
+  {
+    "arn": "arn:aws:iam::123456789012:role/MyRole",
+    "items": [
       {
-        "name": "ListBucket",
-        "ref": "https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html",
-        "description": "Grants permission to list some or all of the objects in an Amazon S3 bucket (up to 1000)",
-        "access_level": "List",
-        "resource_types": [
+        "name": "arn:aws:iam::123456789012:policy/ExamplePolicy",
+        "kind": "attached",
+        "last_accessed_details": [
           {
-            "name": "bucket",
-            "required": true,
-            "ref": "https://docs.aws.amazon.com/service-authorization/latest/reference/list#amazons3-bucket",
-            "condition_keys": []
+            "action_name": "s3:GetObject",
+            "service_name": "Amazon S3",
+            "service_namespace": "s3",
+            "granularity": "action_level",
+            "service_level_last_authenticated": "2024-12-26T07:40:55+00:00",
+            "service_level_last_authenticated_entity": "arn:aws:iam::123456789012:role/MyRole",
+            "service_level_last_authenticated_region": "ap-northeast-1",
+            "action_level_last_accessed": "2024-12-26T07:40:54+00:00",
+            "action_level_last_authenticated_entity": "arn:aws:iam::123456789012:role/MyRole",
+            "action_level_last_authenticated_region": "ap-northeast-1",
+            "considered_unused": true,
+            "considered_unused_reason": "This action is tracked by Access Analyzer and has not been accessed in the past 90 days.",
+            "considered_not_unused_reason": null
           }
-        ],
-        "condition_keys": [
-          {
-            "value": "s3:AccessGrantsInstanceArn",
-            "ref": "https://docs.aws.amazon.com/service-authorization/latest/reference/list#amazons3-s3_AccessGrantsInstanceArn"
-          }
-        ],
-        "dependent_actions": [],
-        "last_accessed_trackable": false,
-        "permission_only": false
+        ]
       }
     ]
   }
-}
-```
-
-- `meta.schema_version`: Format version of the cache.
-- `meta.generated_timestamp`: Unix timestamp (UTC) indicating when the data was scraped.
-- `last_accessed_trackable`: Whether this action is included in Access Analyzer tracking.
-
----
-
-## What is `last_accessed_trackable`?
-
-This flag indicates whether an IAM action is included in AWS's **Access Analyzer unused actions report**.
-
-Actions **not marked as `last_accessed_trackable` will never appear in those reports**, even if unused.
-
-By extracting this metadata directly from AWS documentation, this tool enables **more accurate IAM permission cleanup** — even in environments without CloudTrail.
-
----
-
-## Required IAM Permissions
-
-To run the `list-last-accessed-details` subcommand, the following IAM permissions are required for the calling identity:
-
-- `iam:GenerateServiceLastAccessedDetails`
-- `iam:GetServiceLastAccessedDetails`
-- `iam:ListAttachedRolePolicies`
-- `iam:GetPolicy`
-- `iam:GetPolicyVersion`
-
-These permissions allow the tool to analyze attached policies and query AWS Access Analyzer data.
-
-### Example IAM policy:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "iam:GenerateServiceLastAccessedDetails",
-        "iam:GetServiceLastAccessedDetails",
-        "iam:ListAttachedRolePolicies",
-        "iam:GetPolicy",
-        "iam:GetPolicyVersion"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
+]
 ```
 
 ---
 
-## Development
+## 7. Output Format Options
+The output can be formatted in two ways using the --output-structure option:
 
-### Run from source
+* list (default): Flat list of result objects
+* dict: Top-level object mapping each analyzed ARN to its result payload
 
-```bash
-python -m iam_action_catalog --cache-path ./out.json
-```
-
-### Formatting & Linting
-
-```bash
-pip install ruff build
-```
-
-> These tools are now managed via [pyproject.toml](./pyproject.toml).
+Use --pretty to enable indentation in the JSON output.
 
 ---
 
-## ⚠️ Limitations
+## 8. Explanation of `last_accessed_details` fields
+Each `last_accessed_details` entry provides information about a specific IAM action found in a managed or inline policy.
+These fields are used to determine whether the action is confidently considered unused.
 
-This tool depends on scraping HTML pages from the official AWS IAM documentation.
+| Field                                     | Description                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `action_name`                             | The name of the IAM action (e.g., `s3:GetObject`)                                                      |
+| `service_name`                            | Friendly name of the AWS service (e.g., "Amazon S3")                                                   |
+| `service_namespace`                       | Internal namespace of the AWS service (e.g., `s3`, `ec2`)                                              |
+| `granularity`                             | Level of access tracking used: either `"service_level"` or `"action_level"`                            |
+| `service_level_last_authenticated`        | Timestamp of the last access to *any* action in this service                                           |
+| `service_level_last_authenticated_entity` | IAM principal that made that access                                                                    |
+| `service_level_last_authenticated_region` | Region of that access                                                                                  |
+| `action_level_last_accessed`              | Timestamp of the last access to this specific action (if available)                                    |
+| `action_level_last_authenticated_entity`  | IAM principal that last accessed this action                                                           |
+| `action_level_last_authenticated_region`  | Region where the action was last accessed                                                              |
+| `considered_unused`                       | `true` if the action is trackable and not used within the threshold window                             |
+| `considered_unused_reason`                | Explanation for why the action is considered unused                                                    |
+| `considered_not_unused_reason`            | Explanation for why the action is **not** considered unused (e.g., recently accessed or not trackable) |
 
-Because AWS does **not provide a structured API or schema for IAM actions**, the tool relies on **undocumented and unofficial DOM structure**, which is subject to change.
-
-If AWS changes the page layout or internal structure:
-
-- This tool **may break**
-- It will emit a warning and attempt to rebuild the cache
-- You may need to update the scraper logic
-
-If you notice incorrect or missing data, check the [IAM actions documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_actions-resources-contextkeys.html) for changes.
-
-### Wildcard action patterns
-
-By default, action patterns in IAM policies containing `"*"` are skipped.  
-The tool logs a warning and ignores actions such as `"*"` or `"*:CreateTags"` which cannot be resolved to a specific service.
-
-> This is to prevent runtime errors and ambiguous matching.
-
-As of version 0.3.0, action name wildcards can be expanded when using the `--expand-action-wildcard` flag.  
-For example, `"s3:Describe*"` will match all corresponding actions in the `s3` catalog.  
-Wildcard patterns in the service name or global wildcard (`"*"`) remain unsupported.
 
 ---
 
 ## License
 
 MIT
-
----
-
-## 📝 TODO
-
-Planned features include:
-
-- `--service <service>`: Output actions for a specific AWS service only
-- `--only-trackable`: Output only actions where `last_accessed_trackable == true`
