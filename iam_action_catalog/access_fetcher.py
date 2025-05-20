@@ -461,23 +461,6 @@ class LastAccessFetcher:
             detail.considered_not_unused_reason = considered_not_unused_reason
         return detail
 
-    @staticmethod
-    def _make_message_for_considered_not_unused_reason(
-        trackable: bool, granularity: Literal["service", "action"], days: int
-    ) -> str:
-        if not trackable:
-            return (
-                "This action is not tracked by Access Analyzer and cannot be evaluated."
-            )
-
-        if granularity == "action":
-            return f"This action was accessed at the action level within the past {days} days."
-
-        return (
-            "This action has no recent action-level access record, but "
-            f"the service was accessed within the past {days} days"
-        )
-
 
 def list_last_accessed_details(
     *,
