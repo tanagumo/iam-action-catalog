@@ -383,18 +383,13 @@ class LastAccessFetcher:
             > seconds_since_last_accessed
         )
 
-        considered_not_unused_reason = None
-        if not action.last_accessed_trackable:
-            considered_not_unused_reason = NotUnusedReason.NON_TRACKABLE_ACTION
-
-        if (
-            "LastAuthenticated" in service_last_accessed
-            and (
-                at.timestamp() - service_last_accessed["LastAuthenticated"].timestamp()
-            )
-            <= seconds_since_last_accessed
-        ):
-            considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+        if not considered_unused:
+            if not action.last_accessed_trackable:
+                considered_not_unused_reason = NotUnusedReason.NON_TRACKABLE_ACTION
+            else:
+                considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+        else:
+            considered_not_unused_reason = None
 
         detail = LastAccessedDetail(
             action_name=action.action_name,
@@ -436,16 +431,13 @@ class LastAccessFetcher:
                 > seconds_since_last_accessed
             )
 
-            if (
-                considered_not_unused_reason != NotUnusedReason.NON_TRACKABLE_ACTION
-                and "LastAccessedTime" in action_last_accessed
-                and (
-                    at.timestamp()
-                    - action_last_accessed["LastAccessedTime"].timestamp()
-                )
-                <= seconds_since_last_accessed
-            ):
-                considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+            if not considered_unused:
+                if not action.last_accessed_trackable:
+                    considered_not_unused_reason = NotUnusedReason.NON_TRACKABLE_ACTION
+                else:
+                    considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+            else:
+                considered_not_unused_reason = None
 
             last_accessed_time = action_last_accessed.get("LastAccessedTime")
             detail.granularity = "action"
