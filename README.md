@@ -163,8 +163,36 @@ These fields are used to determine whether the action is confidently considered 
 | `action_level_last_authenticated_region`  | Region where the action was last accessed                                                              |
 | `considered_unused`                       | `true` if the action is trackable and not used within the threshold window                             |
 | `considered_unused_reason`                | Explanation for why the action is considered unused                                                    |
-| `considered_not_unused_reason`            | Explanation for why the action is **not** considered unused (e.g., recently accessed or not trackable) |
+| `considered_not_unused_reason`            | **Reason code** (string) indicating why the action is *not* considered unused. One of:                 |
+|                                           | `"USED_WITHIN_PERIOD"` — the action was used recently                                                  |
+|                                           | `"NON_TRACKABLE_ACTION"` — the action cannot be tracked by Access Analyzer                             |
+|                                           | `"SERVICE_NOT_IN_RESPONSE"` — the service was not included in Access Analyzer's response               |
+| `considered_not_unused_reason_detail`     | Human-readable message explaining the above reason in more detail                                      |
 
+
+---
+
+## 9. Required IAM Permissions
+
+To run `iam-action-catalog`, the executing principal must have the following IAM permissions:
+
+```json
+[
+  "iam:ListAttachedRolePolicies",
+  "iam:ListRolePolicies",
+  "iam:ListAttachedUserPolicies",
+  "iam:ListUserPolicies",
+  "iam:ListAttachedGroupPolicies",
+  "iam:ListGroupPolicies",
+  "iam:GenerateServiceLastAccessedDetails",
+  "iam:GetServiceLastAccessedDetails",
+  "iam:GetPolicy",
+  "iam:GetPolicyVersion",
+  "iam:GetRolePolicy",
+  "iam:GetUserPolicy",
+  "iam:GetGroupPolicy"
+]
+```
 
 ---
 
