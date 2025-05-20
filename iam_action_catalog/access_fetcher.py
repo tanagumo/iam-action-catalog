@@ -59,6 +59,7 @@ class GetLastAccessedDetailError(Exception):
 class NotUnusedReason(Enum):
     NON_TRACKABLE_ACTION = "non_trackable_action"
     USED_WITHIN_PERIOD = "used_within_period"
+    SERVICE_NOT_IN_RESPONSE = "service_not_in_response"
 
     def make_detail_message(self, days: int) -> str:
         match self:
@@ -66,14 +67,16 @@ class NotUnusedReason(Enum):
                 return "Not considered unused because the action is not trackable by Access Analyzer."
             case NotUnusedReason.USED_WITHIN_PERIOD:
                 return f"Not considered unused because it was used within {days} days."
+            case NotUnusedReason.SERVICE_NOT_IN_RESPONSE:
+                return "Service was not included in get_service_last_accessed_details response. Possibly not trackable."
 
 
 @dataclass
 class LastAccessedDetail:
     action_name: str
-    service_name: str
     service_namespace: str
-    granularity: Literal["service", "action"]
+    service_name: str | None
+    granularity: Literal["service", "action"] | None
     service_level_last_authenticated: datetime | None
     service_level_last_authenticated_entity: str | None
     service_level_last_authenticated_region: str | None
@@ -87,9 +90,9 @@ class LastAccessedDetail:
 
 class LastAccessedDetailTypeDef(TypedDict):
     action_name: str
-    service_name: str
     service_namespace: str
-    granularity: Literal["service_level", "action_level"]
+    service_name: str | None
+    granularity: Literal["service_level", "action_level"] | None
     service_level_last_authenticated: str | None
     service_level_last_authenticated_entity: str | None
     service_level_last_authenticated_region: str | None
@@ -109,11 +112,13 @@ def _to_last_accessed_detail_type_def(
 
     return LastAccessedDetailTypeDef(
         action_name=detail.action_name,
-        service_name=detail.service_name,
         service_namespace=detail.service_namespace,
+        service_name=detail.service_name,
         granularity="service_level"
         if detail.granularity == "service"
-        else "action_level",
+        else "action_level"
+        if detail.granularity == "action"
+        else None,
         service_level_last_authenticated=detail.service_level_last_authenticated.isoformat()
         if detail.service_level_last_authenticated
         else None,
@@ -350,6 +355,23 @@ class LastAccessFetcher:
         days_from_last_accessed: int,
         at: datetime,
     ) -> LastAccessedDetail:
+        if action.service_namespace not in result.service_to_last_accessed:
+            return LastAccessedDetail(
+                action_name=action.action_name,
+                service_namespace=action.service_namespace,
+                service_name=None,
+                service_level_last_authenticated=None,
+                granularity=None,
+                service_level_last_authenticated_entity=None,
+                service_level_last_authenticated_region=None,
+                action_level_last_accessed=None,
+                action_level_last_authenticated_entity=None,
+                action_level_last_authenticated_region=None,
+                considered_unused=False,
+                considered_unused_reason=None,
+                considered_not_unused_reason=NotUnusedReason.SERVICE_NOT_IN_RESPONSE,
+            )
+
         seconds_since_last_accessed = days_from_last_accessed * 86400
 
         service_namespace = action.service_namespace
