@@ -5,6 +5,7 @@ import time
 from concurrent import futures
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import (
     Callable,
     Literal,
@@ -55,12 +56,27 @@ class GetLastAccessedDetailError(Exception):
         return self._to_str()
 
 
+class NotUnusedReason(Enum):
+    NON_TRACKABLE_ACTION = "non_trackable_action"
+    USED_WITHIN_PERIOD = "used_within_period"
+    SERVICE_NOT_IN_RESPONSE = "service_not_in_response"
+
+    def make_detail_message(self, days: int) -> str:
+        match self:
+            case NotUnusedReason.NON_TRACKABLE_ACTION:
+                return "Not considered unused because the action is not trackable by Access Analyzer."
+            case NotUnusedReason.USED_WITHIN_PERIOD:
+                return f"Not considered unused because it was used within {days} days."
+            case NotUnusedReason.SERVICE_NOT_IN_RESPONSE:
+                return "Service was not included in get_service_last_accessed_details response. Possibly not trackable."
+
+
 @dataclass
 class LastAccessedDetail:
     action_name: str
-    service_name: str
     service_namespace: str
-    granularity: Literal["service", "action"]
+    service_name: str | None
+    granularity: Literal["service", "action"] | None
     service_level_last_authenticated: datetime | None
     service_level_last_authenticated_entity: str | None
     service_level_last_authenticated_region: str | None
@@ -69,14 +85,14 @@ class LastAccessedDetail:
     action_level_last_authenticated_region: str | None
     considered_unused: bool
     considered_unused_reason: str | None
-    considered_not_unused_reason: str | None
+    considered_not_unused_reason: NotUnusedReason | None
 
 
 class LastAccessedDetailTypeDef(TypedDict):
     action_name: str
-    service_name: str
     service_namespace: str
-    granularity: Literal["service_level", "action_level"]
+    service_name: str | None
+    granularity: Literal["service_level", "action_level"] | None
     service_level_last_authenticated: str | None
     service_level_last_authenticated_entity: str | None
     service_level_last_authenticated_region: str | None
@@ -86,18 +102,23 @@ class LastAccessedDetailTypeDef(TypedDict):
     considered_unused: bool
     considered_unused_reason: str | None
     considered_not_unused_reason: str | None
+    considered_not_unused_reason_detail: str | None
 
 
 def _to_last_accessed_detail_type_def(
-    detail: LastAccessedDetail,
+    detail: LastAccessedDetail, days_from_last_accessed: int
 ) -> LastAccessedDetailTypeDef:
+    considered_not_unused_reason = detail.considered_not_unused_reason
+
     return LastAccessedDetailTypeDef(
         action_name=detail.action_name,
-        service_name=detail.service_name,
         service_namespace=detail.service_namespace,
+        service_name=detail.service_name,
         granularity="service_level"
         if detail.granularity == "service"
-        else "action_level",
+        else "action_level"
+        if detail.granularity == "action"
+        else None,
         service_level_last_authenticated=detail.service_level_last_authenticated.isoformat()
         if detail.service_level_last_authenticated
         else None,
@@ -110,7 +131,14 @@ def _to_last_accessed_detail_type_def(
         action_level_last_authenticated_region=detail.action_level_last_authenticated_region,
         considered_unused=detail.considered_unused,
         considered_unused_reason=detail.considered_unused_reason,
-        considered_not_unused_reason=detail.considered_not_unused_reason,
+        considered_not_unused_reason=str(considered_not_unused_reason.value)
+        if considered_not_unused_reason
+        else None,
+        considered_not_unused_reason_detail=considered_not_unused_reason.make_detail_message(
+            days_from_last_accessed
+        )
+        if considered_not_unused_reason
+        else None,
     )
 
 
@@ -194,10 +222,14 @@ class LastAccessFetcher:
                         name=item[0].name,
                         kind=item[0].kind,
                         last_accessed_details=[
-                            _to_last_accessed_detail_type_def(i)
+                            _to_last_accessed_detail_type_def(
+                                i, days_from_last_accessed
+                            )
                             for i in item[1]
                             if not only_considered_unused
-                            or _to_last_accessed_detail_type_def(i)["considered_unused"]
+                            or _to_last_accessed_detail_type_def(
+                                i, days_from_last_accessed
+                            )["considered_unused"]
                         ],
                     )
                     for item in arn_to_last_accessed_details_result[arn]
@@ -323,6 +355,23 @@ class LastAccessFetcher:
         days_from_last_accessed: int,
         at: datetime,
     ) -> LastAccessedDetail:
+        if action.service_namespace not in result.service_to_last_accessed:
+            return LastAccessedDetail(
+                action_name=action.action_name,
+                service_namespace=action.service_namespace,
+                service_name=None,
+                service_level_last_authenticated=None,
+                granularity=None,
+                service_level_last_authenticated_entity=None,
+                service_level_last_authenticated_region=None,
+                action_level_last_accessed=None,
+                action_level_last_authenticated_entity=None,
+                action_level_last_authenticated_region=None,
+                considered_unused=False,
+                considered_unused_reason=None,
+                considered_not_unused_reason=NotUnusedReason.SERVICE_NOT_IN_RESPONSE,
+            )
+
         seconds_since_last_accessed = days_from_last_accessed * 86400
 
         service_namespace = action.service_namespace
@@ -333,6 +382,14 @@ class LastAccessFetcher:
             or (at.timestamp() - service_last_accessed["LastAuthenticated"].timestamp())
             > seconds_since_last_accessed
         )
+
+        if not considered_unused:
+            if not action.last_accessed_trackable:
+                considered_not_unused_reason = NotUnusedReason.NON_TRACKABLE_ACTION
+            else:
+                considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+        else:
+            considered_not_unused_reason = None
 
         detail = LastAccessedDetail(
             action_name=action.action_name,
@@ -359,13 +416,7 @@ class LastAccessFetcher:
             )
             if considered_unused is True
             else None,
-            considered_not_unused_reason=self._make_message_for_considered_not_unused_reason(
-                action.last_accessed_trackable,
-                "service",
-                days_from_last_accessed,
-            )
-            if considered_unused is False
-            else None,
+            considered_not_unused_reason=considered_not_unused_reason,
         )
 
         if action_last_accessed := result.action_to_last_accessed.get(
@@ -379,6 +430,14 @@ class LastAccessFetcher:
                 )
                 > seconds_since_last_accessed
             )
+
+            if not considered_unused:
+                if not action.last_accessed_trackable:
+                    considered_not_unused_reason = NotUnusedReason.NON_TRACKABLE_ACTION
+                else:
+                    considered_not_unused_reason = NotUnusedReason.USED_WITHIN_PERIOD
+            else:
+                considered_not_unused_reason = None
 
             last_accessed_time = action_last_accessed.get("LastAccessedTime")
             detail.granularity = "action"
@@ -399,35 +458,8 @@ class LastAccessFetcher:
                 if considered_unused is True
                 else None
             )
-            detail.considered_not_unused_reason = (
-                (
-                    self._make_message_for_considered_not_unused_reason(
-                        action.last_accessed_trackable,
-                        "action",
-                        days_from_last_accessed,
-                    )
-                )
-                if considered_unused is False
-                else None
-            )
+            detail.considered_not_unused_reason = considered_not_unused_reason
         return detail
-
-    @staticmethod
-    def _make_message_for_considered_not_unused_reason(
-        trackable: bool, granularity: Literal["service", "action"], days: int
-    ) -> str:
-        if not trackable:
-            return (
-                "This action is not tracked by Access Analyzer and cannot be evaluated."
-            )
-
-        if granularity == "action":
-            return f"This action was accessed at the action level within the past {days} days."
-
-        return (
-            "This action has no recent action-level access record, but "
-            f"the service was accessed within the past {days} days"
-        )
 
 
 def list_last_accessed_details(
