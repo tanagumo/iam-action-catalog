@@ -31,7 +31,7 @@ from mypy_boto3_iam.type_defs import (
 
 from iam_action_catalog.action_catalog import Catalog
 from iam_action_catalog.api import IAMClient
-from iam_action_catalog.utils import unwrap
+from iam_action_catalog.utils import unwrap, mask_arn
 
 ServiceNamespace: TypeAlias = str
 PolicyArn: TypeAlias = str
@@ -173,10 +173,6 @@ class PolicyHolderProtocol(Protocol):
     ) -> dict[PolicyName, set[Action]]: ...
 
 
-class MalformedArnError(Exception):
-    pass
-
-
 class PolicyHolder(PolicyHolderProtocol):
     _lock: threading.Lock = threading.Lock()
 
@@ -294,7 +290,7 @@ class PolicyHolder(PolicyHolderProtocol):
 
         return self._get_actions_from_policy_document(
             policy_document,
-            lambda action: f'Skipping action "{action}" in policy "{policy_arn}"',
+            lambda action: f'Skipping action "{action}" in policy "{mask_arn(policy_arn)}"',
         )
 
     def _get_actions_for_inline_policy(self, policy_name: str) -> set[Action]:
@@ -305,7 +301,7 @@ class PolicyHolder(PolicyHolderProtocol):
 
         return self._get_actions_from_policy_document(
             policy_document,
-            lambda action: f'Skipping action "{action}" in policy "{self._arn}/{policy_name}"',
+            lambda action: f'Skipping action "{action}" in policy "{mask_arn(self._arn)}/{policy_name}"',
         )
 
     def get_actions_for_attached_policies(
@@ -325,7 +321,7 @@ class PolicyHolder(PolicyHolderProtocol):
                     policy_to_actions[policy_arn] = f.result()
                 except Exception:
                     logger.exception(
-                        f"failed to gather actions for policy: {policy_arn}"
+                        f"failed to gather actions for policy: {mask_arn(policy_arn)}"
                     )
         return policy_to_actions
 
@@ -448,4 +444,4 @@ def make_policy_holder(
     if _user_arn_pat.search(arn):
         return IamUser(arn, make_client, catalog)
 
-    raise MalformedArnError(arn)
+    raise AssertionError()

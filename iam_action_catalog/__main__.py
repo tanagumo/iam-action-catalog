@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -10,7 +12,6 @@ from pathlib import Path
 from typing import Any, Final, Literal, TypedDict, TypeGuard
 
 from iam_action_catalog.access_fetcher import (
-    LastAccessFetchResultItemTypeDef,
     LastAccessFetchResultTypeDef,
     list_last_accessed_details,
 )
@@ -19,7 +20,8 @@ from iam_action_catalog.action_catalog import (
     ActionTypeDef,
     GlobalServiceToActions,
 )
-from iam_action_catalog.utils import unwrap
+from iam_action_catalog.settings import settings
+from iam_action_catalog.utils import mask_arn, unwrap
 
 CACHE_EXPIRATION_SECONDS: Final[int] = 60 * 60 * 24
 
@@ -176,6 +178,7 @@ class ListLastAccessedDetails:
     only_considered_unused: bool
     output_structure: Literal["list", "dict"]
     exclude_aws_managed: bool
+    mask_arn: bool
 
 
 @dataclass
@@ -276,6 +279,11 @@ def parse_args() -> ParseResult:
         action="store_true",
         help="Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results.",
     )
+    list_last_accessed_details.add_argument(
+        "--mask-arn",
+        action="store_true",
+        help="Mask aws account id in arns",
+    )
 
     ret = parser.parse_args()
 
@@ -298,12 +306,36 @@ def parse_args() -> ParseResult:
             only_considered_unused=ret.only_considered_unused,
             output_structure=ret.output_structure,
             exclude_aws_managed=ret.exclude_aws_managed,
+            mask_arn=ret.mask_arn,
         )
 
     return ParseResult(
         catalog_path=Path(ret.catalog_path).absolute(),
         command=command,
     )
+
+
+_arn_pat = re.compile(r"^arn:aws:iam::\d{12}:(?:role|group|user)/.+$")
+
+
+def normalize_arn(arn: str) -> str:
+    def validate_arn(arn) -> str:
+        if _arn_pat.search(arn):
+            return arn
+        else:
+            logger.error(f"The arn `{mask_arn(arn)}` is malformed. Check the value.")
+            sys.exit(1)
+
+    if arn.startswith("arn:aws:iam"):
+        return validate_arn(arn)
+    else:
+        if "AWS_ACCOUNT_ID" not in os.environ:
+            logger.error(
+                "AWS_ACCOUNT_ID is required when using short ARN format like 'role/ExampleRole'"
+            )
+            sys.exit(1)
+        account_id = os.environ["AWS_ACCOUNT_ID"]
+        return validate_arn(f"arn:aws:iam::{account_id}:{arn}")
 
 
 def main():
@@ -357,8 +389,10 @@ def main():
         )
     elif isinstance(args.command, ListLastAccessedDetails):
         da = args.command
+        settings.mask_arn = da.mask_arn
+
         details = list_last_accessed_details(
-            arn=da.arn,
+            arn=normalize_arn(da.arn),
             catalog=unwrap(catalog),
             days_from_last_accessed=da.days_from_last_accessed,
             only_considered_unused=da.only_considered_unused,

@@ -28,7 +28,7 @@ from iam_action_catalog.policy_holder import (
     PolicyHolderProtocol,
     make_policy_holder,
 )
-from iam_action_catalog.utils import unwrap
+from iam_action_catalog.utils import mask_arn, unwrap
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class GetLastAccessedDetailError(Exception):
 
     def _to_str(self) -> str:
         return (
-            f"GetLastAccessedDetailError(arn={self.arn}, "
+            f"GetLastAccessedDetailError(arn={mask_arn(self.arn)}, "
             f"error_code={self.error_code}, "
             f"error_message={self.error_message})"
         )
@@ -210,16 +210,18 @@ class LastAccessFetcher:
             try:
                 arn_to_last_accessed_details_result[arn] = f.result()
             except Exception as e:
-                logger.error(f"Failed to fetch last accessed detail for {arn}")
+                logger.error(
+                    f"Failed to fetch last accessed detail for {mask_arn(arn)}"
+                )
                 logger.error(str(e))
 
         arns = [ph.arn for ph in policy_holders]
         return [
             LastAccessFetchResultTypeDef(
-                arn=arn,
+                arn=mask_arn(arn),
                 items=[
                     LastAccessFetchResultItemTypeDef(
-                        name=item[0].name,
+                        name=mask_arn(item[0].name),
                         kind=item[0].kind,
                         last_accessed_details=[
                             _to_last_accessed_detail_type_def(
@@ -316,7 +318,7 @@ class LastAccessFetcher:
                     )
                     action_to_detail[key] = detail
 
-                policy = Policy("attached", policy_arn)
+                policy = Policy("attached", mask_arn(policy_arn))
                 if policy not in details_map:
                     details_map[policy] = []
                 details_map[policy].append(action_to_detail[key])
@@ -399,8 +401,8 @@ class LastAccessFetcher:
                 "LastAuthenticated"
             ),
             granularity="service",
-            service_level_last_authenticated_entity=service_last_accessed.get(
-                "LastAuthenticatedEntity"
+            service_level_last_authenticated_entity=mask_arn(
+                service_last_accessed.get("LastAuthenticatedEntity")
             ),
             service_level_last_authenticated_region=service_last_accessed.get(
                 "LastAuthenticatedRegion"
@@ -442,8 +444,8 @@ class LastAccessFetcher:
             last_accessed_time = action_last_accessed.get("LastAccessedTime")
             detail.granularity = "action"
             detail.action_level_last_accessed = last_accessed_time
-            detail.action_level_last_authenticated_entity = action_last_accessed.get(
-                "LastAccessedEntity"
+            detail.action_level_last_authenticated_entity = mask_arn(
+                action_last_accessed.get("LastAccessedEntity")
             )
             detail.action_level_last_authenticated_region = action_last_accessed.get(
                 "LastAccessedRegion"
