@@ -89,13 +89,15 @@ iam-action-catalog --catalog-path ./catalog.json \
   --arn arn:aws:iam::123456789012:role/MyRole \
   --only-considered-unused \
   --days-from-last-accessed 180 \
-  --pretty
+  --pretty \
+  --exclude-aws-managed
 ```
 
 Options include:
 
 * --days-from-last-accessed: Number of days of inactivity before flagging an action (default: 90)
 * --output-structure list|dict: Controls output format (default: list)
+* --exclude-aws-managed Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results
 * --aws-profile or --aws-access-key-id / --aws-secret-access-key: Credential injection
 
 ---
