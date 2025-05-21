@@ -227,14 +227,20 @@ class LastAccessFetcher:
                             _to_last_accessed_detail_type_def(
                                 i, days_from_last_accessed
                             )
-                            for i in item[1]
+                            for i in sorted(
+                                item[1],
+                                key=lambda d: (d.service_namespace, d.action_name),
+                            )
                             if not only_considered_unused
                             or _to_last_accessed_detail_type_def(
                                 i, days_from_last_accessed
                             )["considered_unused"]
                         ],
                     )
-                    for item in arn_to_last_accessed_details_result[arn]
+                    for item in sorted(
+                        arn_to_last_accessed_details_result[arn],
+                        key=lambda item: (item[0].kind, item[0].name),
+                    )
                 ],
             )
             for arn in arns
