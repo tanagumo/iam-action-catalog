@@ -173,10 +173,6 @@ class PolicyHolderProtocol(Protocol):
     ) -> dict[PolicyName, set[Action]]: ...
 
 
-class MalformedArnError(Exception):
-    pass
-
-
 class PolicyHolder(PolicyHolderProtocol):
     _lock: threading.Lock = threading.Lock()
 
@@ -448,4 +444,4 @@ def make_policy_holder(
     if _user_arn_pat.search(arn):
         return IamUser(arn, make_client, catalog)
 
-    raise MalformedArnError(arn)
+    raise AssertionError()

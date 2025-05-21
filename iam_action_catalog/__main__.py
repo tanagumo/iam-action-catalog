@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -10,7 +12,6 @@ from pathlib import Path
 from typing import Any, Final, Literal, TypedDict, TypeGuard
 
 from iam_action_catalog.access_fetcher import (
-    LastAccessFetchResultItemTypeDef,
     LastAccessFetchResultTypeDef,
     list_last_accessed_details,
 )
@@ -314,6 +315,29 @@ def parse_args() -> ParseResult:
     )
 
 
+_arn_pat = re.compile(r"^arn:aws:iam::\d{12}:(?:role|group|user)/.+$")
+
+
+def normalize_arn(arn: str) -> str:
+    def validate_arn(arn) -> str:
+        if _arn_pat.search(arn):
+            return arn
+        else:
+            logger.error(f"The arn `{mask_arn(arn)}` is malformed. Check the value.")
+            sys.exit(1)
+
+    if arn.startswith("arn:aws:iam"):
+        return validate_arn(arn)
+    else:
+        if "AWS_ACCOUNT_ID" not in os.environ:
+            logger.error(
+                "AWS_ACCOUNT_ID is required when using short ARN format like 'role/ExampleRole'"
+            )
+            sys.exit(1)
+        account_id = os.environ["AWS_ACCOUNT_ID"]
+        return validate_arn(f"arn:aws:iam::{account_id}:{arn}")
+
+
 def main():
     setup_logger()
     args = parse_args()
@@ -366,8 +390,9 @@ def main():
     elif isinstance(args.command, ListLastAccessedDetails):
         da = args.command
         settings.mask_arn = da.mask_arn
+
         details = list_last_accessed_details(
-            arn=da.arn,
+            arn=normalize_arn(da.arn),
             catalog=unwrap(catalog),
             days_from_last_accessed=da.days_from_last_accessed,
             only_considered_unused=da.only_considered_unused,
