@@ -86,11 +86,12 @@ iam-action-catalog --catalog-path ./catalog.json catalog show --pretty
 ```bash
 iam-action-catalog --catalog-path ./catalog.json \
   list-last-accessed-details \
-  --arn arn:aws:iam::123456789012:role/MyRole \
+  --arn role/MyRole \
   --only-considered-unused \
   --days-from-last-accessed 180 \
   --pretty \
-  --exclude-aws-managed
+  --exclude-aws-managed \
+  --mask-arn
 ```
 
 Options include:
@@ -99,6 +100,10 @@ Options include:
 * --output-structure list|dict: Controls output format (default: list)
 * --exclude-aws-managed Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results
 * --aws-profile or --aws-access-key-id / --aws-secret-access-key: Credential injection
+* --mark-arn: Mask AWS account ID in all ARNs shown in the output (e.g., '123456789012' → '1234xxxxxxxx')
+
+Note: The `--arn` option accepts either a full ARN (e.g., `arn:aws:iam::123456789012:role/MyRole`)
+or a short form like `role/MyRole`. When using the short form, you must set the `AWS_ACCOUNT_ID` environment variable.
 
 ---
 
