@@ -19,7 +19,8 @@ from iam_action_catalog.action_catalog import (
     ActionTypeDef,
     GlobalServiceToActions,
 )
-from iam_action_catalog.utils import unwrap
+from iam_action_catalog.settings import settings
+from iam_action_catalog.utils import mask_arn, unwrap
 
 CACHE_EXPIRATION_SECONDS: Final[int] = 60 * 60 * 24
 
@@ -176,6 +177,7 @@ class ListLastAccessedDetails:
     only_considered_unused: bool
     output_structure: Literal["list", "dict"]
     exclude_aws_managed: bool
+    mask_arn: bool
 
 
 @dataclass
@@ -276,6 +278,11 @@ def parse_args() -> ParseResult:
         action="store_true",
         help="Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results.",
     )
+    list_last_accessed_details.add_argument(
+        "--mask-arn",
+        action="store_true",
+        help="Mask aws account id in arns",
+    )
 
     ret = parser.parse_args()
 
@@ -298,6 +305,7 @@ def parse_args() -> ParseResult:
             only_considered_unused=ret.only_considered_unused,
             output_structure=ret.output_structure,
             exclude_aws_managed=ret.exclude_aws_managed,
+            mask_arn=ret.mask_arn,
         )
 
     return ParseResult(
@@ -357,6 +365,7 @@ def main():
         )
     elif isinstance(args.command, ListLastAccessedDetails):
         da = args.command
+        settings.mask_arn = da.mask_arn
         details = list_last_accessed_details(
             arn=da.arn,
             catalog=unwrap(catalog),
