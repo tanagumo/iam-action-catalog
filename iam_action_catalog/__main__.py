@@ -282,7 +282,7 @@ def parse_args() -> ParseResult:
     list_last_accessed_details.add_argument(
         "--mask-arn",
         action="store_true",
-        help="Mask aws account id in arns",
+        help="Mask AWS account ID in all ARNs shown in the output (e.g., '123456789012' → '1234xxxxxxxx')",
     )
 
     ret = parser.parse_args()
