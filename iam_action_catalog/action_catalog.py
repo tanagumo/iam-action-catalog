@@ -15,9 +15,6 @@ SCHEMA_VERSION: Final[str] = "1.0.0"
 logger = logging.getLogger(__name__)
 
 
-URL_PREFIX = "https://docs.aws.amazon.com/service-authorization/latest/reference/list"
-
-
 class ParseError(Exception):
     @overload
     def __init__(self, tag: bs.Tag, *, child: str) -> None: ...
@@ -86,8 +83,8 @@ def get_tag(maybe_tag: bs.Tag, rest: str | None = None) -> bs.Tag:
     return get_tag(child, tail[0])
 
 
-def regulate_href(ref: str) -> str:
-    return f"{URL_PREFIX}{ref}" if not urlparse(ref).scheme else ref
+def regulate_href(ref: str, fallback_url_prefix: str) -> str:
+    return f"{fallback_url_prefix}{ref}" if not urlparse(ref).scheme else ref
 
 
 @dataclass
@@ -302,7 +299,7 @@ def _fetch_action_table(
 
             a_tag = td_list[0].find("a", recursive=False)
             ref_for_action = (
-                regulate_href(get_attr_str(cast(bs.Tag, a_tag), "href"))
+                regulate_href(get_attr_str(cast(bs.Tag, a_tag), "href"), url)
                 if a_tag
                 else None
             )
@@ -333,7 +330,7 @@ def _fetch_action_table(
                 resource_types = [
                     ResourceType(
                         name=get_tag(p, "a").get_text(strip=True),
-                        ref=regulate_href(get_attr_str(get_tag(p, "a"), "href")),
+                        ref=regulate_href(get_attr_str(get_tag(p, "a"), "href"), url),
                     )
                     for p in p_list
                 ]
@@ -351,7 +348,7 @@ def _fetch_action_table(
                     a_tag = get_tag(get_tag(resource_tag, "p"), "a")
                     resource_type = ResourceType(
                         name=a_tag.get_text(strip=True),
-                        ref=regulate_href(get_attr_str(a_tag, "href")),
+                        ref=regulate_href(get_attr_str(a_tag, "href"), url),
                     )
                     action.add_resource_types([resource_type])
 
@@ -361,7 +358,7 @@ def _fetch_action_table(
                     condition_keys = [
                         ConditionKey(
                             value=(get_tag(p, "a").get_text(strip=True)),
-                            ref=regulate_href(get_attr_str(get_tag(p, "a"), "href")),
+                            ref=regulate_href(get_attr_str(get_tag(p, "a"), "href"), url),
                         )
                         for p in p_list
                     ]
@@ -381,7 +378,7 @@ def _fetch_action_table(
                     a_tag = get_tag(get_tag(resource_tag, "p"), "a")
                     resource_type = ResourceType(
                         name=a_tag.get_text(strip=True),
-                        ref=regulate_href(get_attr_str(a_tag, "href")),
+                        ref=regulate_href(get_attr_str(a_tag, "href"), url),
                     )
                     action.add_resource_types([resource_type])
 
@@ -398,7 +395,7 @@ def _fetch_action_table(
                                         "a",
                                     ),
                                     "href",
-                                )
+                                ), url
                             ),
                         )
                         for p in p_list
@@ -470,7 +467,7 @@ def _make_catalog(
         if service in mapping:
             return mapping[service]
 
-        return f"{URL_PREFIX}_{''.join([i.lower() for i in service.split(' ')])}.html"
+        return f"{_url_prefix}/list_{''.join([i.lower() for i in service.split(' ')])}.html"
 
     with urlopen(
         "https://docs.aws.amazon.com/service-authorization/latest/reference/"
