@@ -9,7 +9,11 @@ from hashlib import md5
 from pathlib import Path
 from typing import Any, Final, Literal, TypedDict, TypeGuard
 
-from iam_action_catalog.access_fetcher import list_last_accessed_details
+from iam_action_catalog.access_fetcher import (
+    LastAccessFetchResultItemTypeDef,
+    LastAccessFetchResultTypeDef,
+    list_last_accessed_details,
+)
 from iam_action_catalog.action_catalog import (
     SCHEMA_VERSION,
     ActionTypeDef,
@@ -171,6 +175,7 @@ class ListLastAccessedDetails:
     days_from_last_accessed: int
     only_considered_unused: bool
     output_structure: Literal["list", "dict"]
+    exclude_aws_managed: bool
 
 
 @dataclass
@@ -266,6 +271,11 @@ def parse_args() -> ParseResult:
         default="list",
         help="Output structure. 'list' produces an array of results; 'dict' maps each ARN to its corresponding result.",
     )
+    list_last_accessed_details.add_argument(
+        "--exclude-aws-managed",
+        action="store_true",
+        help="Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results.",
+    )
 
     ret = parser.parse_args()
 
@@ -287,6 +297,7 @@ def parse_args() -> ParseResult:
             pretty_print=ret.pretty,
             only_considered_unused=ret.only_considered_unused,
             output_structure=ret.output_structure,
+            exclude_aws_managed=ret.exclude_aws_managed,
         )
 
     return ParseResult(
@@ -356,6 +367,20 @@ def main():
             secret_access_key=da.aws_secret_access_key,
             region=da.aws_region,
         )
+
+        def exclude_aws_managed_policies(
+            result: LastAccessFetchResultTypeDef,
+        ) -> LastAccessFetchResultTypeDef:
+            result["items"] = [
+                i
+                for i in result["items"]
+                if i["kind"] != "attached"
+                or not i["name"].startswith("arn:aws:iam::aws:policy")
+            ]
+            return result
+
+        if da.exclude_aws_managed:
+            details = [exclude_aws_managed_policies(d) for d in details]
 
         if da.output_structure == "list":
             json.dump(details, sys.stdout, indent=4 if da.pretty_print else None)
