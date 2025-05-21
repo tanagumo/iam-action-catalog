@@ -358,7 +358,9 @@ def _fetch_action_table(
                     condition_keys = [
                         ConditionKey(
                             value=(get_tag(p, "a").get_text(strip=True)),
-                            ref=regulate_href(get_attr_str(get_tag(p, "a"), "href"), url),
+                            ref=regulate_href(
+                                get_attr_str(get_tag(p, "a"), "href"), url
+                            ),
                         )
                         for p in p_list
                     ]
@@ -395,7 +397,8 @@ def _fetch_action_table(
                                         "a",
                                     ),
                                     "href",
-                                ), url
+                                ),
+                                url,
                             ),
                         )
                         for p in p_list
