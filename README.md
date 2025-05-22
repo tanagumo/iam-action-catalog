@@ -98,9 +98,9 @@ Options include:
 
 * --days-from-last-accessed: Number of days of inactivity before flagging an action (default: 90)
 * --output-structure list|dict: Controls output format (default: list)
-* --exclude-aws-managed Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results
+* --exclude-aws-managed: Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results
 * --aws-profile or --aws-access-key-id / --aws-secret-access-key: Credential injection
-* --mark-arn: Mask AWS account ID in all ARNs shown in the output (e.g., '123456789012' → '1234xxxxxxxx')
+* --mask-arn: Mask AWS account ID in all ARNs shown in the output (e.g., '123456789012' → '1234xxxxxxxx')
 
 Note: The `--arn` option accepts either a full ARN (e.g., `arn:aws:iam::123456789012:role/MyRole`)
 or a short form like `role/MyRole`. When using the short form, you must set the `AWS_ACCOUNT_ID` environment variable.
