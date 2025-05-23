@@ -10,7 +10,7 @@ from urllib.request import urlopen
 
 import bs4 as bs
 
-SCHEMA_VERSION: Final[str] = "1.0.0"
+SCHEMA_VERSION: Final[str] = "2"
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,7 @@ class ActionScenario:
 
 @dataclass
 class Action:
+    service_namespace: str
     name: str
     ref: str | None
     last_accessed_trackable: bool
@@ -194,6 +195,7 @@ class ActionTypeDef(TypedDict):
     in external API responses.
     """
 
+    service_namespace: str
     name: str
     ref: str | None
     description: str
@@ -207,6 +209,7 @@ class ActionTypeDef(TypedDict):
 
 def _to_action_type_def(a: Action) -> ActionTypeDef:
     return {
+        "service_namespace": a.service_namespace,
         "name": a.name,
         "ref": a.ref,
         "description": a.description,
@@ -225,24 +228,23 @@ def _flatten_actions(actions: list[Action]) -> list[ActionTypeDef]:
     for action in actions:
         ret.append(_to_action_type_def(action))
         for s in action.scenarios:
-            ret.append(
-                {
-                    "name": f"{action.name}/{s.name}",
-                    "ref": action.ref,
-                    "description": action.description,
-                    "access_level": action.access_level,
-                    "resource_types": [
-                        _to_resource_type_type_def(r) for r in s.resource_types
-                    ],
-                    # NOTE: As of 2025/04/29, the only known case where a single Action has multiple scenarios
-                    # is the RunInstances action in the EC2 service.
-                    # In these cases, condition keys appear to be absent, so we currently fix it as an empty list.
-                    "condition_keys": [],
-                    "dependent_actions": action.dependent_actions,
-                    "last_accessed_trackable": action.last_accessed_trackable,
-                    "permission_only": action.permission_only,
-                }
-            )
+            ret.append({
+                "service_namespace": action.service_namespace,
+                "name": f"{action.name}/{s.name}",
+                "ref": action.ref,
+                "description": action.description,
+                "access_level": action.access_level,
+                "resource_types": [
+                    _to_resource_type_type_def(r) for r in s.resource_types
+                ],
+                # NOTE: As of 2025/04/29, the only known case where a single Action has multiple scenarios
+                # is the RunInstances action in the EC2 service.
+                # In these cases, condition keys appear to be absent, so we currently fix it as an empty list.
+                "condition_keys": [],
+                "dependent_actions": action.dependent_actions,
+                "last_accessed_trackable": action.last_accessed_trackable,
+                "permission_only": action.permission_only,
+            })
 
     return ret
 
@@ -304,6 +306,7 @@ def _fetch_action_table(
                 else None
             )
             action = Action(
+                service_namespace=service_prefix,
                 name=action_name.split("[permission only]", 1)[0].strip(),
                 ref=ref_for_action,
                 last_accessed_trackable=(
@@ -370,9 +373,9 @@ def _fetch_action_table(
                         action.add_condition_keys(condition_keys)
 
                 dependent_tag = td_list[5]
-                action.add_dependent_actions(
-                    [p.get_text(strip=True) for p in dependent_tag.select("p")]
-                )
+                action.add_dependent_actions([
+                    p.get_text(strip=True) for p in dependent_tag.select("p")
+                ])
             case RowKind.additional:
                 resource_type = None
                 resource_tag = td_list[0]
@@ -409,9 +412,9 @@ def _fetch_action_table(
                         action.add_condition_keys(condition_keys)
 
                 dependent_tag = td_list[2]
-                action.add_dependent_actions(
-                    [p.get_text(strip=True) for p in dependent_tag.select("p")]
-                )
+                action.add_dependent_actions([
+                    p.get_text(strip=True) for p in dependent_tag.select("p")
+                ])
 
     return service_prefix, _flatten_actions(actions)
 
