@@ -11,6 +11,7 @@ from typing import (
     Literal,
     TypeAlias,
     TypedDict,
+    overload,
 )
 
 import boto3
@@ -26,6 +27,7 @@ from iam_action_catalog.iam_resources import (
     Action,
     Arn,
     PolicyHolderProtocol,
+    PolicyProtocol,
     make_policy_holder,
 )
 from iam_action_catalog.utils import mask_arn, unwrap
@@ -156,6 +158,11 @@ class LastAccessFetchResultTypeDef(TypedDict):
     items: list[LastAccessFetchResultItemTypeDef]
 
 
+class PolicyAccessDetailTypeDef(TypedDict):
+    arn: str
+    last_accessed_details: list[LastAccessedDetailTypeDef]
+
+
 class LastAccessFetcher:
     _lock: threading.Lock = threading.Lock()
 
@@ -188,7 +195,44 @@ class LastAccessFetcher:
                 setattr(self, "__client", client)
             return client
 
+    @overload
     def fetch(
+        self,
+        days_from_last_accessed: int,
+        only_considered_unused: bool,
+        *,
+        policy_holders: list[PolicyHolderProtocol],
+    ) -> list[LastAccessFetchResultTypeDef]: ...
+
+    @overload
+    def fetch(
+        self,
+        days_from_last_accessed: int,
+        only_considered_unused: bool,
+        *,
+        policies: list[PolicyProtocol],
+    ) -> list[PolicyAccessDetailTypeDef]: ...
+
+    def fetch(
+        self,
+        days_from_last_accessed: int,
+        only_considered_unused: bool,
+        *,
+        policy_holders: list[PolicyHolderProtocol] | None = None,
+        policies: list[PolicyProtocol] | None = None,
+    ) -> list[LastAccessFetchResultTypeDef] | list[PolicyAccessDetailTypeDef]:
+        assert (policy_holders and not policies) or (not policy_holders and policies)
+
+        if policy_holders:
+            return self._fetch_last_accessed_details_for_policy_holders(
+                policy_holders, days_from_last_accessed, only_considered_unused
+            )
+        else:
+            return self._fetch_last_accessed_details_for_policies(
+                unwrap(policies), days_from_last_accessed, only_considered_unused
+            )
+
+    def _fetch_last_accessed_details_for_policy_holders(
         self,
         policy_holders: list[PolicyHolderProtocol],
         days_from_last_accessed: int,
@@ -244,6 +288,56 @@ class LastAccessFetcher:
                 ],
             )
             for arn in arns
+        ]
+
+    def _fetch_last_accessed_details_for_policies(
+        self,
+        policies: list[PolicyProtocol],
+        days_from_last_accessed: int,
+        only_considered_unused: bool,
+    ) -> list[PolicyAccessDetailTypeDef]:
+        with futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 1) as exc:
+            fs = {
+                policy.arn: exc.submit(
+                    self._get_details_for_policy, policy, days_from_last_accessed
+                )
+                for policy in policies
+            }
+
+        arn_to_last_accessed_details_result: dict[Arn, list[LastAccessedDetail]] = {}
+        for arn, f in fs.items():
+            try:
+                arn_to_last_accessed_details_result[arn] = f.result()
+            except Exception as e:
+                logger.error(
+                    f"Failed to fetch last accessed detail for {mask_arn(arn)}"
+                )
+                logger.error(str(e))
+
+        def filter_map_details(
+            details: list[LastAccessedDetail],
+            days_from_last_accessed: int,
+            only_considered_unused: bool,
+        ) -> list[LastAccessedDetailTypeDef]:
+            type_defs = []
+            for detail in details:
+                type_def = _to_last_accessed_detail_type_def(
+                    detail, days_from_last_accessed
+                )
+                if not only_considered_unused or type_def["considered_unused"]:
+                    type_defs.append(type_def)
+            return type_defs
+
+        return [
+            PolicyAccessDetailTypeDef(
+                arn=arn,
+                last_accessed_details=filter_map_details(
+                    arn_to_last_accessed_details_result[arn],
+                    days_from_last_accessed,
+                    only_considered_unused,
+                ),
+            )
+            for arn in sorted([policy.arn for policy in policies])
         ]
 
     def _get_intermediate_result(
@@ -355,6 +449,29 @@ class LastAccessFetcher:
             (key, details_map[key])
             for key in sorted(keys, key=lambda p: (p.kind, p.name))
         ]
+
+    def _get_details_for_policy(
+        self, policy: PolicyProtocol, days_from_last_accessed: int
+    ) -> list[LastAccessedDetail]:
+        intermediate_result = self._get_intermediate_result(policy.arn)
+        processed_actions: set[Action] = set()
+        details: list[LastAccessedDetail] = []
+        now = datetime.now()
+
+        for action in policy.get_actions():
+            if action in processed_actions:
+                continue
+
+            processed_actions.add(action)
+            details.append(
+                self._to_last_accessed_details(
+                    intermediate_result,
+                    action,
+                    days_from_last_accessed,
+                    now,
+                )
+            )
+        return details
 
     def _to_last_accessed_details(
         self,
