@@ -587,17 +587,13 @@ class LastAccessFetcher:
         return detail
 
 
-def list_last_accessed_details(
+def _make_iam_client_maker(
     *,
-    arn: str,
-    catalog: Catalog,
-    days_from_last_accessed: int,
-    only_considered_unused: bool,
     profile_name: str | None = None,
     access_key_id: str | None = None,
     secret_access_key: str | None = None,
     region: str | None = None,
-) -> list[LastAccessFetchResultTypeDef]:
+) -> Callable[[], IAMClient]:
     kwargs_for_session = {}
     if profile_name is not None:
         kwargs_for_session["profile_name"] = profile_name
@@ -612,8 +608,29 @@ def list_last_accessed_details(
         session = boto3.Session(**kwargs_for_session)
         return IAMClient(session)
 
-    policy_holder = make_policy_holder(arn, make_client, catalog)
+    return make_client
+
+
+def list_last_accessed_details_policy_holders(
+    *,
+    arns: list[str],
+    catalog: Catalog,
+    days_from_last_accessed: int,
+    only_considered_unused: bool,
+    profile_name: str | None = None,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    region: str | None = None,
+) -> list[LastAccessFetchResultTypeDef]:
+    make_client = _make_iam_client_maker(
+        profile_name=profile_name,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        region=region,
+    )
+
+    policy_holders = [make_policy_holder(arn, make_client, catalog) for arn in arns]
     fetcher = LastAccessFetcher(make_client, catalog)
     return fetcher.fetch(
-        days_from_last_accessed, only_considered_unused, policy_holders=[policy_holder]
+        days_from_last_accessed, only_considered_unused, policy_holders=policy_holders
     )

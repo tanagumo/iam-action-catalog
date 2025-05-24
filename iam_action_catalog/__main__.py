@@ -13,7 +13,7 @@ from typing import Any, Final, Literal, TypedDict, TypeGuard
 
 from iam_action_catalog.access_fetcher import (
     LastAccessFetchResultTypeDef,
-    list_last_accessed_details,
+    list_last_accessed_details_policy_holders,
 )
 from iam_action_catalog.action_catalog import (
     SCHEMA_VERSION,
@@ -391,8 +391,8 @@ def main():
         da = args.command
         settings.mask_arn = da.mask_arn
 
-        details = list_last_accessed_details(
-            arn=normalize_arn(da.arn),
+        details = list_last_accessed_details_policy_holders(
+            arns=[normalize_arn(da.arn)],
             catalog=unwrap(catalog),
             days_from_last_accessed=da.days_from_last_accessed,
             only_considered_unused=da.only_considered_unused,
