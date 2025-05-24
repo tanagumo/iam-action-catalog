@@ -31,7 +31,9 @@ from mypy_boto3_iam.type_defs import (
 
 from iam_action_catalog.action_catalog import Catalog
 from iam_action_catalog.api import IAMClient
-from iam_action_catalog.utils import unwrap, mask_arn
+from iam_action_catalog.utils import mask_arn, unwrap
+
+from .types import Action
 
 ServiceNamespace: TypeAlias = str
 PolicyArn: TypeAlias = str
@@ -146,13 +148,6 @@ class ListIamUserPoliciesApi(ListApi[ListUserPoliciesRequestTypeDef, str]):
         items = [name for name in res["PolicyNames"]]
         marker = res.get("Marker")
         return (items, marker)
-
-
-@dataclass(frozen=True)
-class Action:
-    service_namespace: str
-    action_name: str
-    last_accessed_trackable: bool
 
 
 class InlinePolicyTypeDef(TypedDict):

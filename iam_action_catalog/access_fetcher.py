@@ -22,7 +22,7 @@ from mypy_boto3_iam.type_defs import (
 
 from iam_action_catalog.action_catalog import Catalog
 from iam_action_catalog.api import IAMClient
-from iam_action_catalog.policy_holder import (
+from iam_action_catalog.iam_resources import (
     Action,
     Arn,
     PolicyHolderProtocol,
