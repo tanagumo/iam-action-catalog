@@ -498,5 +498,5 @@ def list_last_accessed_details(
     policy_holder = make_policy_holder(arn, make_client, catalog)
     fetcher = LastAccessFetcher(make_client, catalog)
     return fetcher.fetch(
-        [policy_holder], days_from_last_accessed, only_considered_unused
+        days_from_last_accessed, only_considered_unused, policy_holders=[policy_holder]
     )
