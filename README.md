@@ -81,7 +81,11 @@ iam-action-catalog --catalog-path ./catalog.json catalog show --pretty
 
 ---
 
-### Analyze last accessed actions for a role
+### Analyze last accessed actions
+
+You can analyze either an IAM identity (role/user/group) or a standalone managed policy by specifying one of the following options:
+
+#### For IAM role/user/group
 
 ```bash
 iam-action-catalog --catalog-path ./catalog.json \
@@ -94,15 +98,33 @@ iam-action-catalog --catalog-path ./catalog.json \
   --mask-arn
 ```
 
-Options include:
+#### For standalone managed policy
 
-* --days-from-last-accessed: Number of days of inactivity before flagging an action (default: 90)
-* --output-structure list|dict: Controls output format (default: list)
-* --exclude-aws-managed: Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results
-* --aws-profile or --aws-access-key-id / --aws-secret-access-key: Credential injection
-* --mask-arn: Mask AWS account ID in all ARNs shown in the output (e.g., '123456789012' → '1234xxxxxxxx')
+```bash
+iam-action-catalog --catalog-path ./catalog.json \
+  list-last-accessed-details \
+  --policy-arn arn:aws:iam::123456789012:policy/MyCustomPolicy \
+  --only-considered-unused \
+  --days-from-last-accessed 180 \
+  --pretty \
+  --mask-arn
+```
 
-Note: The `--arn` option accepts either a full ARN (e.g., `arn:aws:iam::123456789012:role/MyRole`)
+> ⚠️ You must use either `--arn` or `--policy-arn`, but not both. These options are mutually exclusive.
+
+---
+
+### Options
+
+* `--days-from-last-accessed`: Number of days of inactivity before flagging an action (default: 90)  
+* `--output-structure list|dict`: Controls output format (default: list)  
+* `--exclude-aws-managed`: Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results  
+* `--aws-profile` or `--aws-access-key-id` / `--aws-secret-access-key`: Credential injection  
+* `--mask-arn`: Mask AWS account ID in all ARNs shown in the output (e.g., `123456789012` → `1234xxxxxxxx`)  
+
+#### About `--arn`
+
+The `--arn` option accepts either a full ARN (e.g., `arn:aws:iam::123456789012:role/MyRole`)  
 or a short form like `role/MyRole`. When using the short form, you must set the `AWS_ACCOUNT_ID` environment variable.
 
 ---
