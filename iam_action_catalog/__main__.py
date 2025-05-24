@@ -13,6 +13,7 @@ from typing import Any, Final, Literal, TypedDict, TypeGuard
 
 from iam_action_catalog.access_fetcher import (
     LastAccessFetchResultTypeDef,
+    list_last_accessed_details_policies,
     list_last_accessed_details_policy_holders,
 )
 from iam_action_catalog.action_catalog import (
@@ -168,7 +169,8 @@ class ShowCatalog:
 
 @dataclass
 class ListLastAccessedDetails:
-    arn: str
+    arn: str | None
+    policy_arn: str | None
     pretty_print: bool
     aws_access_key_id: str | None
     aws_secret_access_key: str | None
@@ -227,12 +229,23 @@ def parse_args() -> ParseResult:
         "list-last-accessed-details",
         help="List potentially unused IAM actions based on Access Analyzer data.",
     )
-    list_last_accessed_details.add_argument(
+
+    mutually_exclusive_group = list_last_accessed_details.add_mutually_exclusive_group(
+        required=True
+    )
+
+    mutually_exclusive_group.add_argument(
         "--arn",
         type=str,
-        required=True,
         help="ARN of the IAM role, user, or group to analyze. Both managed and inline policies will be evaluated.",
     )
+
+    mutually_exclusive_group.add_argument(
+        "--policy-arn",
+        type=str,
+        help="ARN of the IAM Policy",
+    )
+
     list_last_accessed_details.add_argument(
         "--aws-access-key-id",
         type=str,
@@ -277,7 +290,7 @@ def parse_args() -> ParseResult:
     list_last_accessed_details.add_argument(
         "--exclude-aws-managed",
         action="store_true",
-        help="Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results.",
+        help="Exclude AWS managed policies (arn:aws:iam::aws:policy/...) from the results. This option is ignored when `--policy-arn` option is specified.",
     )
     list_last_accessed_details.add_argument(
         "--mask-arn",
@@ -297,6 +310,7 @@ def parse_args() -> ParseResult:
     else:
         command = ListLastAccessedDetails(
             arn=ret.arn,
+            policy_arn=ret.policy_arn,
             aws_access_key_id=ret.aws_access_key_id,
             aws_secret_access_key=ret.aws_secret_access_key,
             aws_profile=ret.aws_profile,
@@ -315,7 +329,7 @@ def parse_args() -> ParseResult:
     )
 
 
-_arn_pat = re.compile(r"^arn:aws:iam::\d{12}:(?:role|group|user)/.+$")
+_arn_pat = re.compile(r"^arn:aws:iam::\d{12}:(?:role|group|user|policy)/.+$")
 
 
 def normalize_arn(arn: str) -> str:
@@ -391,40 +405,70 @@ def main():
         da = args.command
         settings.mask_arn = da.mask_arn
 
-        details = list_last_accessed_details_policy_holders(
-            arns=[normalize_arn(da.arn)],
-            catalog=unwrap(catalog),
-            days_from_last_accessed=da.days_from_last_accessed,
-            only_considered_unused=da.only_considered_unused,
-            profile_name=da.aws_profile,
-            access_key_id=da.aws_access_key_id,
-            secret_access_key=da.aws_secret_access_key,
-            region=da.aws_region,
-        )
-
-        def exclude_aws_managed_policies(
-            result: LastAccessFetchResultTypeDef,
-        ) -> LastAccessFetchResultTypeDef:
-            result["items"] = [
-                i
-                for i in result["items"]
-                if i["kind"] != "attached"
-                or not i["name"].startswith("arn:aws:iam::aws:policy")
-            ]
-            return result
-
-        if da.exclude_aws_managed:
-            details = [exclude_aws_managed_policies(d) for d in details]
-
-        if da.output_structure == "list":
-            json.dump(details, sys.stdout, indent=4 if da.pretty_print else None)
-        else:
-            json.dump(
-                {d["arn"]: {"items": d["items"]} for d in details},
-                sys.stdout,
-                indent=4 if da.pretty_print else None,
+        if da.arn:
+            details = list_last_accessed_details_policy_holders(
+                arns=[normalize_arn(da.arn)],
+                catalog=unwrap(catalog),
+                days_from_last_accessed=da.days_from_last_accessed,
+                only_considered_unused=da.only_considered_unused,
+                profile_name=da.aws_profile,
+                access_key_id=da.aws_access_key_id,
+                secret_access_key=da.aws_secret_access_key,
+                region=da.aws_region,
             )
-        sys.stdout.write("\n")
+
+            def exclude_aws_managed_policies(
+                result: LastAccessFetchResultTypeDef,
+            ) -> LastAccessFetchResultTypeDef:
+                result["items"] = [
+                    i
+                    for i in result["items"]
+                    if i["kind"] != "attached"
+                    or not i["name"].startswith("arn:aws:iam::aws:policy")
+                ]
+                return result
+
+            if da.exclude_aws_managed:
+                details = [exclude_aws_managed_policies(d) for d in details]
+
+            if da.output_structure == "list":
+                json.dump(details, sys.stdout, indent=4 if da.pretty_print else None)
+            else:
+                json.dump(
+                    {d["arn"]: {"items": d["items"]} for d in details},
+                    sys.stdout,
+                    indent=4 if da.pretty_print else None,
+                )
+            sys.stdout.write("\n")
+
+        elif da.policy_arn:
+            details = list_last_accessed_details_policies(
+                arns=[normalize_arn(da.policy_arn)],
+                catalog=unwrap(catalog),
+                days_from_last_accessed=da.days_from_last_accessed,
+                only_considered_unused=da.only_considered_unused,
+                profile_name=da.aws_profile,
+                access_key_id=da.aws_access_key_id,
+                secret_access_key=da.aws_secret_access_key,
+                region=da.aws_region,
+            )
+
+            if da.output_structure == "list":
+                json.dump(details, sys.stdout, indent=4 if da.pretty_print else None)
+            else:
+                json.dump(
+                    {
+                        d["arn"]: {"last_accessed_details": d["last_accessed_details"]}
+                        for d in details
+                    },
+                    sys.stdout,
+                    indent=4 if da.pretty_print else None,
+                )
+            sys.stdout.write("\n")
+
+        else:
+            raise AssertionError("should be unreachable")
+
     else:
         raise AssertionError("unreachable")
 

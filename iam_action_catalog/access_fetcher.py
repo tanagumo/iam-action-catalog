@@ -28,6 +28,7 @@ from iam_action_catalog.iam_resources import (
     Arn,
     PolicyHolderProtocol,
     PolicyProtocol,
+    make_policy,
     make_policy_holder,
 )
 from iam_action_catalog.utils import mask_arn, unwrap
@@ -633,4 +634,29 @@ def list_last_accessed_details_policy_holders(
     fetcher = LastAccessFetcher(make_client, catalog)
     return fetcher.fetch(
         days_from_last_accessed, only_considered_unused, policy_holders=policy_holders
+    )
+
+
+def list_last_accessed_details_policies(
+    *,
+    arns: list[str],
+    catalog: Catalog,
+    days_from_last_accessed: int,
+    only_considered_unused: bool,
+    profile_name: str | None = None,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    region: str | None = None,
+) -> list[PolicyAccessDetailTypeDef]:
+    make_client = _make_iam_client_maker(
+        profile_name=profile_name,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        region=region,
+    )
+
+    policies = [make_policy(arn, make_client, catalog) for arn in arns]
+    fetcher = LastAccessFetcher(make_client, catalog)
+    return fetcher.fetch(
+        days_from_last_accessed, only_considered_unused, policies=policies
     )
